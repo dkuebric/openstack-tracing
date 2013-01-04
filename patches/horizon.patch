@@ -1,0 +1,13 @@
+diff --git a/openstack_dashboard/wsgi/django.wsgi b/openstack_dashboard/wsgi/django.wsgi
+index 1e92a4d..f59c2d7 100644
+--- a/openstack_dashboard/wsgi/django.wsgi
++++ b/openstack_dashboard/wsgi/django.wsgi
+@@ -4,6 +4,8 @@ import sys
+ import django.core.handlers.wsgi
+ from django.conf import settings
+ 
++import oboeware.djangoware
++
+ # Add this file path to sys.path in order to import settings
+ sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), '../..'))
+ os.environ['DJANGO_SETTINGS_MODULE'] = 'openstack_dashboard.settings'

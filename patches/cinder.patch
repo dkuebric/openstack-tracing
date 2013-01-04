@@ -1,0 +1,212 @@
+diff --git a/cinder/contrib/__init__.py b/cinder/contrib/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/cinder/contrib/oboe/README b/cinder/contrib/oboe/README
+new file mode 100644
+index 0000000..ad66b90
+--- /dev/null
++++ b/cinder/contrib/oboe/README
+@@ -0,0 +1,15 @@
++Declare as following in /etc/cinder/api-paste.conf:
++
++[filter:oboe]
++paste.filter_factory = cinder.contrib.oboe:CinderOboeMiddleware.factory
++
++Then use in all pipelines:
++
++[composite:openstack_volume_api_v1]
++use = call:cinder.api.auth:pipeline_factory
++noauth = oboe faultwrap sizelimit noauth osapi_volume_app_v1
++keystone = oboe faultwrap sizelimit authtoken keystonecontext osapi_volume_app_v1
++keystone_nolimit = oboe faultwrap sizelimit authtoken keystonecontext osapi_volume_app_v1
++
++[pipeline:osvolumeversions]
++pipeline = oboe faultwrap osvolumeversionapp
+diff --git a/cinder/contrib/oboe/__init__.py b/cinder/contrib/oboe/__init__.py
+new file mode 100644
+index 0000000..16bc071
+--- /dev/null
++++ b/cinder/contrib/oboe/__init__.py
+@@ -0,0 +1,17 @@
++# vim: tabstop=4 shiftwidth=4 softtabstop=4
++
++# Copyright 2012 OpenStack LLC
++#
++# Licensed under the Apache License, Version 2.0 (the "License"); you may
++# not use this file except in compliance with the License. You may obtain
++# a copy of the License at
++#
++#      http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++# License for the specific language governing permissions and limitations
++# under the License.
++
++from cinder.contrib.oboe.core import *
+diff --git a/cinder/contrib/oboe/core.py b/cinder/contrib/oboe/core.py
+new file mode 100644
+index 0000000..7f4ef05
+--- /dev/null
++++ b/cinder/contrib/oboe/core.py
+@@ -0,0 +1,39 @@
++# vim: tabstop=4 shiftwidth=4 softtabstop=4
++
++# Copyright 2012 OpenStack LLC
++#
++# Licensed under the Apache License, Version 2.0 (the "License"); you may
++# not use this file except in compliance with the License. You may obtain
++# a copy of the License at
++#
++#      http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++# License for the specific language governing permissions and limitations
++# under the License.
++
++import sys
++
++from cinder import wsgi
++
++# Imports for Tracelytics/Oboe
++try:
++    from oboeware import OboeMiddleware
++    import oboe
++    oboe.config['tracing_mode'] = 'always'
++    oboe.config['sample_rate'] = 1.0
++except ImportError:
++    sys.exc_clear()
++# End imports for Tracelytics/Oboe
++
++class CinderOboeMiddleware(wsgi.Middleware):
++    """Tracelytics instrumentation."""
++
++    def __init__(self, application, *args, **kwargs):
++        self._mid = OboeMiddleware(application, {}, layer='cinder')
++        return super(CinderOboeMiddleware, self).__init__(application, *args, **kwargs)
++
++    def __call__(self, *args, **kwargs):
++        return self._mid(*args, **kwargs)
+diff --git a/cinder/openstack/common/rpc/__init__.py b/cinder/openstack/common/rpc/__init__.py
+index acc2daa..fc51399 100644
+--- a/cinder/openstack/common/rpc/__init__.py
++++ b/cinder/openstack/common/rpc/__init__.py
+@@ -68,7 +68,15 @@ rpc_opts = [
+ 
+ cfg.CONF.register_opts(rpc_opts)
+ 
++import oboe
+ 
++def get_params(func, f_args, f_kwargs, ret):
++    return {'RemoteAction': f_args[2]['method'],
++            'RemoteController': 'RPC',
++            'RemoteProtocol': 'RPC',
++            'IsService': True}
++
++@oboe.Context.log_method('rpc', store_backtrace=True, entry_kvs={'Method': 'create_connection'})
+ def create_connection(new=True):
+     """Create a connection to the message bus used for rpc.
+ 
+@@ -85,6 +93,7 @@ def create_connection(new=True):
+     return _get_impl().create_connection(cfg.CONF, new=new)
+ 
+ 
++@oboe.Context.log_method('rpc', store_backtrace=True, entry_kvs={'Method': 'call'}, callback=get_params)
+ def call(context, topic, msg, timeout=None):
+     """Invoke a remote method that returns something.
+ 
+@@ -108,6 +117,7 @@ def call(context, topic, msg, timeout=None):
+     return _get_impl().call(cfg.CONF, context, topic, msg, timeout)
+ 
+ 
++@oboe.Context.log_method('rpc', store_backtrace=True, entry_kvs={'Method': 'cast'}, callback=get_params)
+ def cast(context, topic, msg):
+     """Invoke a remote method that does not return anything.
+ 
+@@ -126,6 +136,7 @@ def cast(context, topic, msg):
+     return _get_impl().cast(cfg.CONF, context, topic, msg)
+ 
+ 
++@oboe.Context.log_method('rpc', store_backtrace=True, entry_kvs={'Method': 'fanout_cast'}, callback=get_params)
+ def fanout_cast(context, topic, msg):
+     """Broadcast a remote method invocation with no return.
+ 
+@@ -147,6 +158,7 @@ def fanout_cast(context, topic, msg):
+     return _get_impl().fanout_cast(cfg.CONF, context, topic, msg)
+ 
+ 
++@oboe.Context.log_method('rpc', store_backtrace=True, entry_kvs={'Method': 'multicall'}, callback=get_params)
+ def multicall(context, topic, msg, timeout=None):
+     """Invoke a remote method and get back an iterator.
+ 
+@@ -177,6 +189,7 @@ def multicall(context, topic, msg, timeout=None):
+     return _get_impl().multicall(cfg.CONF, context, topic, msg, timeout)
+ 
+ 
++@oboe.Context.log_method('rpc', store_backtrace=True, entry_kvs={'Method': 'notify'}, callback=get_params)
+ def notify(context, topic, msg):
+     """Send notification event.
+ 
+diff --git a/cinder/openstack/common/rpc/dispatcher.py b/cinder/openstack/common/rpc/dispatcher.py
+index 9f8a908..78b0add 100644
+--- a/cinder/openstack/common/rpc/dispatcher.py
++++ b/cinder/openstack/common/rpc/dispatcher.py
+@@ -82,7 +82,10 @@ minimum version that supports the new parameter should be specified.
+ """
+ 
+ from cinder.openstack.common.rpc import common as rpc_common
++import oboe
+ 
++oboe.config['tracing_mode'] = 'always'
++oboe.config['sample_rate'] = 1.0
+ 
+ class RpcDispatcher(object):
+     """Dispatch rpc messages according to the requested API version.
+@@ -131,20 +134,28 @@ class RpcDispatcher(object):
+         if not version:
+             version = '1.0'
+ 
+-        had_compatible = False
+-        for proxyobj in self.callbacks:
+-            if hasattr(proxyobj, 'RPC_API_VERSION'):
+-                rpc_api_version = proxyobj.RPC_API_VERSION
++
++        oboe.start_trace('cinder', keys={'HTTP-Host': 'RPC', 'URL': str(method)})
++        try:
++            had_compatible = False
++            for proxyobj in self.callbacks:
++                if hasattr(proxyobj, 'RPC_API_VERSION'):
++                    rpc_api_version = proxyobj.RPC_API_VERSION
++                else:
++                    rpc_api_version = '1.0'
++                is_compatible = self._is_compatible(rpc_api_version, version)
++                had_compatible = had_compatible or is_compatible
++                if not hasattr(proxyobj, method):
++                    continue
++                if is_compatible:
++                    return getattr(proxyobj, method)(ctxt, **kwargs)
++
++            if had_compatible:
++                raise AttributeError("No such RPC function '%s'" % method)
+             else:
+-                rpc_api_version = '1.0'
+-            is_compatible = self._is_compatible(rpc_api_version, version)
+-            had_compatible = had_compatible or is_compatible
+-            if not hasattr(proxyobj, method):
+-                continue
+-            if is_compatible:
+-                return getattr(proxyobj, method)(ctxt, **kwargs)
+-
+-        if had_compatible:
+-            raise AttributeError("No such RPC function '%s'" % method)
+-        else:
+-            raise rpc_common.UnsupportedRpcVersion(version=version)
++                raise rpc_common.UnsupportedRpcVersion(version=version)
++        except Exception, e:
++            oboe.Context.log_exception()
++            raise
++        finally:
++            oboe.end_trace('cinder')

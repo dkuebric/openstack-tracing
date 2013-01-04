@@ -1,0 +1,93 @@
+diff --git a/keystone/contrib/oboe/README b/keystone/contrib/oboe/README
+new file mode 100644
+index 0000000..3ff412b
+--- /dev/null
++++ b/keystone/contrib/oboe/README
+@@ -0,0 +1,18 @@
++Declare as following in /etc/keystone.conf:
++
++[filter:oboe]
++paste.filter_factory = keystone.contrib.oboe:KeystoneOboeMiddleware.factory
++
++Then include in all pipelines, eg:
++
++[pipeline:public_api]
++pipeline = oboe stats_monitoring url_normalize token_auth admin_token_auth xml_body json_body debug ec2_extension user_crud_extension public_service
++
++[pipeline:admin_api]
++pipeline = oboe stats_monitoring url_normalize token_auth admin_token_auth xml_body json_body debug stats_reporting ec2_extension s3_extension crud_extension admin_service
++
++[pipeline:public_version_api]
++pipeline = oboe stats_monitoring url_normalize xml_body public_version_service
++
++[pipeline:admin_version_api]
++pipeline = oboe stats_monitoring url_normalize xml_body admin_version_service
+diff --git a/keystone/contrib/oboe/__init__.py b/keystone/contrib/oboe/__init__.py
+new file mode 100644
+index 0000000..814547c
+--- /dev/null
++++ b/keystone/contrib/oboe/__init__.py
+@@ -0,0 +1,17 @@
++# vim: tabstop=4 shiftwidth=4 softtabstop=4
++
++# Copyright 2012 OpenStack LLC
++#
++# Licensed under the Apache License, Version 2.0 (the "License"); you may
++# not use this file except in compliance with the License. You may obtain
++# a copy of the License at
++#
++#      http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++# License for the specific language governing permissions and limitations
++# under the License.
++
++from keystone.contrib.oboe.core import *
+diff --git a/keystone/contrib/oboe/core.py b/keystone/contrib/oboe/core.py
+new file mode 100644
+index 0000000..23188aa
+--- /dev/null
++++ b/keystone/contrib/oboe/core.py
+@@ -0,0 +1,40 @@
++# vim: tabstop=4 shiftwidth=4 softtabstop=4
++
++# Copyright 2012 OpenStack LLC
++#
++# Licensed under the Apache License, Version 2.0 (the "License"); you may
++# not use this file except in compliance with the License. You may obtain
++# a copy of the License at
++#
++#      http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++# License for the specific language governing permissions and limitations
++# under the License.
++
++import sys
++
++from keystone.common import wsgi
++
++# Imports for Tracelytics/Oboe
++try:
++    from oboeware import OboeMiddleware
++    import oboe
++    oboe.config['tracing_mode'] = 'always'
++    oboe.config['sample_rate'] = 1.0
++except ImportError:
++    sys.exc_clear()
++# End imports for Tracelytics/Oboe
++
++class KeystoneOboeMiddleware(wsgi.Middleware):
++    """Tracelytics instrumentation."""
++
++    def __init__(self, application, *args, **kwargs):
++        print "KOAPP", application
++        self._mid = OboeMiddleware(application, {}, layer='keystone')
++        return super(KeystoneOboeMiddleware, self).__init__(application, *args, **kwargs)
++
++    def __call__(self, *args, **kwargs):
++        return self._mid(*args, **kwargs)
